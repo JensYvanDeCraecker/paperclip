@@ -485,7 +485,7 @@ provider key with `AI_REPAIR_TEST_KEY`. The test verifies these boundaries befor
 revoking credentials or submitting work. Delete the disposable instance and revoke
 its provider key after the test; failed tests may leave a paused task for inspection.
 
-Authenticated public deployments must configure a trusted runtime host (`PAPERCLIP_TRUSTED_MCP_RUNTIME_HOST` or `PAPERCLIP_TOOL_RUNTIME_TRUSTED_HOST`) before offering server-host subscription login, matching the local stdio runtime boundary. Health reports this capability so setup can offer a supported environment or API key when local sign-in is unavailable. Private authenticated self-hosted instances support isolated local login without that extra setting. Isolated Claude credential files must be private, owned by the server user, bounded, and free of symlinks.
+Authenticated public deployments must configure a trusted runtime host (`PAPERCLIP_TRUSTED_MCP_RUNTIME_HOST` or `PAPERCLIP_TOOL_RUNTIME_TRUSTED_HOST`) before offering server-host subscription login, matching the local stdio runtime boundary. An operator who wants only subscription login on a public instance, without designating the host as a trusted local stdio runtime, can set `PAPERCLIP_ALLOW_PUBLIC_LOCAL_AI_LOGIN=true` instead; every signed-in user allowed to create AI connections can then run a server-host login. Health reports this capability so setup can offer a supported environment or API key when local sign-in is unavailable. Private authenticated self-hosted instances support isolated local login without that extra setting. Isolated Claude credential files must be private, owned by the server user, bounded, and free of symlinks.
 
 ### Hiring and delegated work
 
