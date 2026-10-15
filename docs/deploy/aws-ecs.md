@@ -424,7 +424,7 @@ aws ecs update-service \
   --force-new-deployment
 ```
 
-Use the invite flow (added in v2026.416.0) to grant access to additional users after sign-up is disabled. An invited person without an account can still create one from the invite link: with sign-up disabled, the server accepts a sign-up only when it carries an open invite (not revoked, accepted, expired, or agent-only).
+Use the invite flow (added in v2026.416.0) to grant access to additional users after sign-up is disabled.
 
 ## Deploying Updates
 

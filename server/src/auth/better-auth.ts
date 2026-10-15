@@ -3,7 +3,6 @@ import type { IncomingHttpHeaders } from "node:http";
 import { betterAuth, type Auth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { toNodeHandler } from "better-auth/node";
-import { APIError, createAuthMiddleware } from "better-auth/api";
 import type { Db } from "@paperclipai/db";
 import {
   authAccounts,
@@ -13,7 +12,6 @@ import {
 } from "@paperclipai/db";
 import type { Config } from "../config.js";
 import { resolvePaperclipInstanceId } from "../home-paths.js";
-import { INVITE_SIGN_UP_TOKEN_HEADER, inviteAllowsHumanSignUp } from "./invite-sign-up.js";
 import {
   workspaceLoginHandoffPlugin,
   type WorkspaceHandoffExpectedIdentity,
@@ -275,19 +273,7 @@ export function createBetterAuthInstance(db: Db, config: Config, trustedOrigins:
     emailAndPassword: {
       enabled: true,
       requireEmailVerification: false,
-      // `authDisableSignUp` is enforced by the `hooks.before` gate below rather
-      // than here, so that an invited person can still create an account.
-      disableSignUp: false,
-    },
-    hooks: {
-      before: createAuthMiddleware(async (ctx) => {
-        if (!config.authDisableSignUp || ctx.path !== "/sign-up/email") return;
-        if (await inviteAllowsHumanSignUp(db, ctx.headers?.get(INVITE_SIGN_UP_TOKEN_HEADER))) return;
-        throw new APIError("BAD_REQUEST", {
-          message: "Email and password sign up is not enabled",
-          code: "EMAIL_PASSWORD_SIGN_UP_DISABLED",
-        });
-      }),
+      disableSignUp: config.authDisableSignUp,
     },
     rateLimit: buildBetterAuthRateLimitOptions({
       deploymentMode: config.deploymentMode,
