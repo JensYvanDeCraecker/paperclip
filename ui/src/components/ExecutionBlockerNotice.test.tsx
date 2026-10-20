@@ -13,7 +13,7 @@ vi.mock("../lib/router", () => ({
 }));
 vi.mock("../api/agents", () => ({ agentsApi: { retryFailedRun: vi.fn() } }));
 vi.mock("../api/activity", () => ({ activityApi: { runsForIssue: vi.fn() } }));
-vi.mock("../api/issues", () => ({ issuesApi: { recoveryActions: vi.fn(), listAttachments: vi.fn(), reconstructWorkspace: vi.fn(), recoverWorkspace: vi.fn() } }));
+vi.mock("../api/issues", () => ({ issuesApi: { recoveryActions: vi.fn(), listAttachments: vi.fn(), reconstructWorkspace: vi.fn(), recoverWorkspace: vi.fn(), resolveRecoveryAction: vi.fn() } }));
 
 describe("stopped task recovery notice", () => {
   let root: Root;
@@ -295,8 +295,53 @@ describe("stopped task recovery notice", () => {
     expect(issuesApi.recoveryActions).toHaveBeenCalledWith("task");
     expect(container.querySelector("details")?.textContent).toContain("The last tool outcome could not be verified.");
     expect(container.querySelector("details")?.textContent).toContain("stopped automatic retries");
-    expect(container.querySelector("button")).toBeNull();
+    expect([...container.querySelectorAll("button")].map(button => button.textContent)).not.toContain("Retry");
     expect(agentsApi.retryFailedRun).not.toHaveBeenCalled();
+  });
+  describe("releasing a hold left by a cancelled run", () => {
+    const renderHold = async (canManage: boolean) => {
+      vi.mocked(issuesApi.recoveryActions).mockResolvedValue({ active: null, actions: [{
+        id: "recovery", status: "resolved", resolutionNote: null,
+        evidence: { runId: "cancelled-run", automaticRecovery: { replay: "blocked" } },
+      }] as never });
+      vi.mocked(activityApi.runsForIssue).mockResolvedValue([{ runId: "cancelled-run", agentId: "agent", status: "cancelled" }] as never);
+      await act(async () => root.render(<QueryClientProvider client={client}>
+        <ExecutionBlockerNotice companyId="company" issueId="task" issueStatus="blocked" canManage={canManage} onRetried={onRetried} blocker={{
+          recoveryActionId: "recovery", runId: "cancelled-run", agentId: "agent", runStatus: "cancelled",
+          cause: "legacy_execution_requires_reconciliation", runError: "Interrupted to send queued messages",
+          nextAction: "Inspect the run before sending a new message to request continuation.",
+        }} />
+      </QueryClientProvider>));
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
+    };
+    const releaseButton = () => [...container.querySelectorAll<HTMLButtonElement>("button")]
+      .find(button => button.textContent === "Release hold");
+    const setValue = (element: HTMLTextAreaElement | HTMLSelectElement, value: string) => {
+      const proto = element instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLTextAreaElement.prototype;
+      Object.getOwnPropertyDescriptor(proto, "value")!.set!.call(element, value);
+      element.dispatchEvent(new Event(element instanceof HTMLSelectElement ? "change" : "input", { bubbles: true }));
+    };
+    it("records the run outcome and moves the task to todo", async () => {
+      await renderHold(true);
+      const button = releaseButton()!;
+      expect(button.disabled).toBe(true);
+      vi.mocked(issuesApi.resolveRecoveryAction).mockResolvedValue({} as never);
+      await act(async () => container.querySelector<HTMLButtonElement>('[role="checkbox"]')!.click());
+      await act(async () => setValue(container.querySelector("select")!, "not_performed"));
+      await act(async () => setValue(container.querySelector("textarea")!, "Stopped before the Claude process started."));
+      expect(button.disabled).toBe(false);
+      await act(async () => button.click());
+      expect(issuesApi.resolveRecoveryAction).toHaveBeenCalledWith("task", {
+        actionId: "recovery", outcome: "restored", sourceIssueStatus: "todo",
+        executionReconciliation: { runId: "cancelled-run", providerStopped: true, actionOutcome: "not_performed",
+          outcomeEvidence: "Stopped before the Claude process started." },
+      });
+      expect(onRetried).toHaveBeenCalled();
+    });
+    it("is only offered to board members who can manage the task", async () => {
+      await renderHold(false);
+      expect(releaseButton()).toBeUndefined();
+    });
   });
   it("does not show a different run's historical recovery decision", async () => {
     vi.mocked(issuesApi.recoveryActions).mockResolvedValue({ active: null, actions: [{
