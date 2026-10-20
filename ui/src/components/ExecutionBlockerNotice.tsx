@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import type { ExecutionBlocker, Issue } from "@paperclipai/shared";
 import { WorkspaceReconstructionRecovery } from "./WorkspaceReconstructionRecovery";
+import { ExecutionHoldRelease } from "./ExecutionHoldRelease";
 import { agentsApi } from "../api/agents";
 import { activityApi } from "../api/activity";
 import { issuesApi } from "../api/issues";
@@ -43,6 +44,11 @@ export function ExecutionBlockerNotice({ companyId, issueId, issueStatus, canMan
   const modelRejected = failedRun?.errorCode === "native_provider_model_rejected";
   const requiresInspection = blocker.cause === "native_continuation_requires_reconciliation" ||
     blocker.cause === "native_session_cleanup_quarantined";
+  // A cancelled run (for example one interrupted by a board comment) has no
+  // Retry or Continue path, so record its outcome to release the hold.
+  const canReleaseHold = Boolean(canManage && hold && replayBlocked && blocker.runId && blocker.agentId &&
+    blocker.cause === "legacy_execution_requires_reconciliation" && !failedRun && !blocker.canContinue &&
+    !blocker.canRetry && !blocker.workspaceRepairRequired && !blocker.canReconstructWorkspace);
   const retry = useMutation({
     mutationFn: () => agentsApi.retryFailedRun(blocker.agentId!, blocker.runId!, companyId),
     onSuccess: () => {
@@ -129,6 +135,14 @@ export function ExecutionBlockerNotice({ companyId, issueId, issueStatus, canMan
         {canManage && hold?.resolutionNote && <p>{hold.resolutionNote}</p>}
       </details>}
       {recoveryError && <p role="alert" className="w-full text-destructive">Unable to load recovery details: {recoveryError.message}</p>}
+      {canReleaseHold && <ExecutionHoldRelease key={`release:${hold!.id}:${blocker.runId}`} issueId={issueId} holdId={hold!.id}
+        blocker={blocker} onReleased={() => {
+          onRetried();
+          for (const queryKey of [queryKeys.issues.detail(issueId), queryKeys.issues.runs(issueId),
+            queryKeys.issues.recoveryActions(issueId, blocker.recoveryActionId, blocker.runId)]) {
+            void queryClient.invalidateQueries({ queryKey });
+          }
+        }} />}
       {blocker.canReconstructWorkspace && <WorkspaceReconstructionRecovery key={`reconstruct:${blocker.recoveryActionId}:${blocker.runId}`}
         issueId={issueId} blocker={blocker} canManage={canManage} onRecorded={onRetried} />}
     </div>
