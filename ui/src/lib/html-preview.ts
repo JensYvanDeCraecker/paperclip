@@ -5,14 +5,17 @@ export function isHtmlPreview(contentType: string | null | undefined, filename: 
 }
 
 // Inline scripts support self-contained reports/charts. No origin privileges,
-// external scripts, API calls, forms, embeds, or remote subresources are granted.
+// API calls, forms, embeds, or other remote subresources are granted.
+// Local deviation: scripts from cdnjs, jsdelivr and unpkg and Google Fonts are
+// allowed so artifacts can load libraries (e.g. marked, mp4-muxer) and webfonts,
+// and blob: images so canvas artifacts can rasterize their own SVGs.
 // Multiple CSPs intersect; artifact markup cannot loosen this first policy.
 export const HTML_PREVIEW_CSP = [
   "default-src 'none'",
-  "script-src 'unsafe-inline'",
-  "style-src 'unsafe-inline'",
-  "img-src data:",
-  "font-src data:",
+  "script-src 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com",
+  "style-src 'unsafe-inline' https://fonts.googleapis.com",
+  "img-src data: blob:",
+  "font-src data: https://fonts.gstatic.com",
   "media-src data:",
   "connect-src 'none'",
   "frame-src 'none'",
