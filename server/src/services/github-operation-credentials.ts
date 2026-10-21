@@ -146,10 +146,9 @@ export async function resolveGitHubOperationCredentials(
         agentId: input.agentId,
         heartbeatRunId: input.runId,
         allowStandingDelegation: false,
-        responsibleUserId:
-          context?.cause === "company_default"
-            ? null
-            : (context?.responsibleUserId ?? null),
+        // Local deviation: a company_default run (a timer, or a task spawned
+        // from one) uses the company default user's personal GitHub identity.
+        responsibleUserId: context?.responsibleUserId ?? null,
         issueId:
           typeof run.contextSnapshot?.issueId === "string"
             ? run.contextSnapshot.issueId
