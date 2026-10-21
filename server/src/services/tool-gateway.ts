@@ -320,6 +320,15 @@ export interface ToolGatewayDescriptor extends AgentToolDescriptor {
   providerMetadata?: ConnectedMcpGatewayMetadata | Record<string, unknown>;
 }
 
+/**
+ * Local deviation: company_default runs (timers and the tasks they spawn) use
+ * the company default user's personal GitHub identity instead of failing with
+ * "No managed GitHub identity". Applies to managed GitHub selection only.
+ */
+function githubResponsibleUserId(session: Pick<ToolGatewaySession, "responsibleUserId" | "companyDefaultResponsibleUserId">) {
+  return session.responsibleUserId ?? session.companyDefaultResponsibleUserId ?? null;
+}
+
 export interface ToolGatewaySession {
   id: string;
   token: string;
@@ -338,6 +347,12 @@ export interface ToolGatewaySession {
   actorId?: string | null;
   /** Human whose personal connection grant applies to this execution. */
   responsibleUserId?: string | null;
+  /**
+   * Local deviation: the company default user recorded for a company_default
+   * execution. Generic tools still treat these runs as ownerless; only managed
+   * GitHub selection falls back to this person's personal identity.
+   */
+  companyDefaultResponsibleUserId?: string | null;
   /** Captured by the controller for this request, never accepted from tool arguments. */
   identityContextId?: string | null;
   /** Set only after verifying the signed approved action. */
@@ -2074,6 +2089,10 @@ export function createToolGatewayService(
         captured.context?.cause === "company_default"
           ? null
           : captured.context?.responsibleUserId,
+      companyDefaultResponsibleUserId:
+        captured.context?.cause === "company_default"
+          ? captured.context.responsibleUserId
+          : null,
     };
   }
 
@@ -2867,7 +2886,7 @@ export function createToolGatewayService(
           session.companyId,
           {
             agentId: session.agentId,
-            responsibleUserId: session.responsibleUserId,
+            responsibleUserId: githubResponsibleUserId(session),
             allowStandingDelegation: false,
           },
         );
@@ -2926,7 +2945,7 @@ export function createToolGatewayService(
               session.companyId,
               {
                 agentId: session.agentId,
-                responsibleUserId: session.responsibleUserId,
+                responsibleUserId: githubResponsibleUserId(session),
                 allowStandingDelegation: false,
                 excludeGrantId: original.id,
               },
@@ -4524,7 +4543,7 @@ export function createToolGatewayService(
         ? { grant: captured.grant, error: undefined }
         : await resolveManagedGitHubIdentitySelection(db, session.companyId, {
             agentId: session.agentId,
-            responsibleUserId: session.responsibleUserId,
+            responsibleUserId: githubResponsibleUserId(session),
             allowStandingDelegation: false,
           });
       if (!selected.grant || selected.grant.connectionId !== connection.id) {
@@ -7929,6 +7948,8 @@ export function createToolGatewayService(
     session.identityContextId = origin.id;
     session.responsibleUserId =
       origin.cause === "company_default" ? null : origin.responsibleUserId;
+    session.companyDefaultResponsibleUserId =
+      origin.cause === "company_default" ? origin.responsibleUserId : null;
   }
 
   async function executeApprovedAgentInvocation(input: {
@@ -10066,6 +10087,10 @@ export function createToolGatewayService(
             origin.cause === "company_default"
               ? null
               : origin.responsibleUserId;
+          session.companyDefaultResponsibleUserId =
+            origin.cause === "company_default"
+              ? origin.responsibleUserId
+              : null;
         }
       }
       let tool = await findToolForSession(session, input.tool);

@@ -594,16 +594,30 @@ const support = await getEmbeddedPostgresTestSupport();
         env: {},
       });
     });
-    it("does not resolve the company default person's GitHub", async () => {
+    // Local deviation: timers and the tasks they spawn run as company_default
+    // and use the company default person's personal GitHub identity.
+    it("resolves the company default person's GitHub for a company_default run", async () => {
       const input = await seed();
       await grant(input, "A");
       await db
         .update(runIdentityContexts)
         .set({ cause: "company_default" })
         .where(eq(runIdentityContexts.runId, input.runId));
-      expect((await resolveGitHubOperationCredentials(db, input)).env).toEqual(
-        {},
-      );
+      const result = await resolveGitHubOperationCredentials(db, input);
+      expect(result).toMatchObject({ status: "available", login: "A", source: "personal" });
+      expect(result.env.GH_TOKEN).toBe("test-token-A");
+    });
+    it("still prefers a dedicated identity over the company default person's GitHub", async () => {
+      const input = await seed();
+      await grant(input, "A");
+      await grant(input, "robot", true);
+      await db
+        .update(runIdentityContexts)
+        .set({ cause: "company_default" })
+        .where(eq(runIdentityContexts.runId, input.runId));
+      expect(await resolveGitHubOperationCredentials(db, input)).toMatchObject({
+        status: "available", login: "robot", source: "dedicated",
+      });
     });
     it.each([false, true])(
       "withholds sponsor and dedicated credentials from every low-trust policy source (dedicated=%s)",

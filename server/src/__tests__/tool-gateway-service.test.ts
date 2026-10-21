@@ -1672,6 +1672,41 @@ describeEmbeddedPostgres("tool gateway service", () => {
     expect(resolvedGrants).toHaveLength(3);
   });
 
+  // Local deviation: timers and the tasks they spawn run as company_default and
+  // use the company default person's personal GitHub identity.
+  it("uses the company default person's GitHub identity for a company_default run", async () => {
+    const { company, agent, issue, run } = await createRunFixture(db);
+    const { connection } = await createRemoteMcpToolFixture(db, company.id);
+    await db.update(toolConnections).set({ authKind: "oauth", credentialSource: "paperclip_vault",
+      config: { ...connection.config, sourceTemplateKey: "github" },
+    }).where(eq(toolConnections.id, connection.id));
+    await db.insert(toolConnectionInstalls).values({ companyId: company.id,
+      connectionId: connection.id, targetType: "company", targetId: company.id });
+    await db.insert(companyMemberships).values({ companyId: company.id,
+      principalType: "user", principalId: "A", status: "active", membershipRole: "member" });
+    const [grant] = await db.insert(connectionGrants).values({
+      companyId: company.id, connectionId: connection.id, kind: "user", subjectUserId: "A",
+      status: "active", credentialSecretRefs: [],
+    }).returning();
+    await initializeRunIdentity(db, { companyId: company.id, runId: run.id, issueId: issue.id,
+      responsibleUserId: "A", cause: "company_default" });
+    await db.insert(toolPolicies).values(readPolicyRow(company, "Allow reads"));
+    const resolvedGrants: string[] = [];
+    const gateway = createTestToolGatewayService(db, {
+      oauthGrantRefresher: async ({ grantId }) => {
+        resolvedGrants.push(grantId);
+        return db.select().from(connectionGrants).where(eq(connectionGrants.id, grantId)).then(rows => rows[0]!);
+      },
+      remoteHttpRequest: async (_url, init) => new Response(JSON.stringify({ jsonrpc: "2.0",
+        id: JSON.parse(String(init.body)).id, result: { content: [{ type: "text", text: "ok" }] },
+      }), { status: 200, headers: { "content-type": "application/json" } }),
+    });
+    const session = await gateway.createSession(runSessionInput(company, agent, run));
+    const tool = (await gateway.listToolsForSession(session.token)).find(t => t.providerType === "mcp_remote_http")!;
+    expect((await gateway.executeTool({ sessionToken: session.token, tool: tool.name, parameters: {} })).status).toBe("completed");
+    expect(resolvedGrants).toEqual([grant!.id]);
+  });
+
   it.each([false, true])("reselects a duplicate only before GitHub dispatch (upstream failure: %s)", async (upstreamFailure) => {
     const { company, agent, issue, run } = await createRunFixture(db);
     const first = await createRemoteMcpToolFixture(db, company.id);
